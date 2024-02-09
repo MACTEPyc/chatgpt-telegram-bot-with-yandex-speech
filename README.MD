@@ -1,3 +1,5 @@
+Автором является https://github.com/theStrangeAdventurer. В данный проект внесены лишь некоторые изменения такие, как: 1. Вместо основного сервера chatgpt openai используется https://api.proxyapi.ru/openai/v1 (OpenAI/ChatGPT API из России); 2. Выбор модели голоса приятеля выведен в .env 
+
 # Телеграм бот для общения с CHAT GPT
 > Chat Gpt Telegram bot using Yandex SpeechKit, telegraf and openai
 
@@ -25,6 +27,7 @@ BOT_API_KEY=<API ключ из @BotFather>
 YA_PASSPORT_TOKEN=<https://oauth.yandex.ru/authorize?response_type=token&client_id=1a6990aa636648e9b2ef855fa7bec2fb>
 FOLDER_ID=<https://cloud.yandex.ru/folders/FOLDER_ID>
 GPT_API_KEY=<https://platform.openai.com/account/api-keys>
+VOICE=oksana
 ACCOUNTS_WHITE_LIST=login1,login2 # Логины для которых должен быть доступен бот, если не указаны, бот будет доступен для всех
 ```
 
