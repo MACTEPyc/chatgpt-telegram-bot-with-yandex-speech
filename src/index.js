@@ -1,4 +1,3 @@
-
 import i18next from 'i18next';
 import { Telegraf } from 'telegraf';
 import axios from 'axios';
@@ -10,72 +9,79 @@ import './utils/bootstrap.js'; // !!! Этот импорт должен быт�
 import { tt } from './utils/logger.js';
 
 import {
-    sendReplyFromAssistant,
-    sendVoiceAssistantResponse,
-    replyWithRoles,
-    accessDenied,
-    setUserLanguage,
-    getUsername,
-    getReplyId,
-    replyWithLanguageButtons,
-    replyWithProgrammingLanguages,
-    replyWithVoiceButtons,
-    replyWithModel,
-    replyWithImagePropmt,
+  sendReplyFromAssistant,
+  sendVoiceAssistantResponse,
+  replyWithRoles,
+  accessDenied,
+  setUserLanguage,
+  getUsername,
+  getReplyId,
+  replyWithLanguageButtons,
+  replyWithProgrammingLanguages,
+  replyWithVoiceButtons,
+  replyWithModel,
+  replyWithImagePropmt,
 } from './utils/chat.js';
 import { recognizeVoice, iamToken } from './utils/yandex.js';
 import { requestAssist, generateImage } from './utils/openai.js';
 
 import {
-    getAssistantContext,
-    characterDefault,
-    roles,
-    supportedLangs,
-    langDefault,
-    accounts,
-    characters
+  getAssistantContext,
+  characterDefault,
+  roles,
+  supportedLangs,
+  langDefault,
+  accounts,
+  characters,
 } from './constants/index.js';
 
 const require = createRequire(import.meta.url);
 
 i18next.init({
-    lng: langDefault,
-    debug: false,
-    resources: supportedLangs.reduce((acc, lang) => {
-        acc[lang] = { translation: require(path.resolve(process.cwd(), 'src', 'locales', `${lang}.json`)) };
-        return acc;
-    }, {})
-  });
+  lng: langDefault,
+  debug: false,
+  resources: supportedLangs.reduce((acc, lang) => {
+    acc[lang] = {
+      translation: require(path.resolve(
+        process.cwd(),
+        'src',
+        'locales',
+        `${lang}.json`
+      )),
+    };
+    return acc;
+  }, {}),
+});
 
 /**
  * Стор, в кототом храним контекст чатов с ботом
  * @type {Map<number, import('./types').UserContext>}
  */
-const chatContextStore = new class {
-    constructor() {
-        this._store = new Map();
-    }
-    get(id) {
-        tt`d!chatContextStore:get ${id}`
-        return this._store.get(id);
-    }
+const chatContextStore = new (class {
+  constructor() {
+    this._store = new Map();
+  }
+  get(id) {
+    tt`d!chatContextStore:get ${id}`;
+    return this._store.get(id);
+  }
 
-    set(id, value) {
-        tt`d!chatContextStore:set ${id} ${{value}}`
-        return this._store.set(id, value);
-    }
+  set(id, value) {
+    tt`d!chatContextStore:set ${id} ${{ value }}`;
+    return this._store.set(id, value);
+  }
 
-    has(id) {
-        tt`d!chatContextStore:has ${id}`
-        return this._store.has(id);
-    }
-};
+  has(id) {
+    tt`d!chatContextStore:has ${id}`;
+    return this._store.has(id);
+  }
+})();
 
 /**
  * @type {import('telegraf').Telegram}
  */
 const bot = new Telegraf(process.env.BOT_API_KEY, {
-    handlerTimeout: 90_000 * 20 // Chat GPT Может отвечать долго, значение по умолчанию 90 сек
+  handlerTimeout: 90_000 * 20, // Chat GPT Может отвечать долго, значение по умолчанию 90 сек
 });
 
 const DEFAULT_MODEL = 'gpt-3.5-turbo-16k';
@@ -85,440 +91,495 @@ const GPT_4_MODEL = 'gpt-4';
  * @type {import('./types').UserContext}
  */
 const initialChatContext = {
-    lang: langDefault,
-    model: 'gpt-3.5-turbo-16k',
-    messages: [],
-    assistantCharacter: characterDefault,
-    enableVoiceResponse: false,
-    assistantCharacterExtra: { language: 'javascript' }, // Default language JS ¯\_(ツ)_/¯ 
-    waitForImagePrompt: false,
+  lang: langDefault,
+  model: 'gpt-3.5-turbo-16k',
+  messages: [],
+  assistantCharacter: characterDefault,
+  enableVoiceResponse: false,
+  assistantCharacterExtra: { language: 'javascript' }, // Default language JS ¯\_(ツ)_/¯
+  waitForImagePrompt: false,
 };
 
 const checkChatContext = (id) => {
+  tt`d!Check chat context ${{ id }}`;
 
-    tt`d!Check chat context ${{id}}`;
-
-    if (!chatContextStore.has(id)) {
-        chatContextStore.set(id, {
-            ...initialChatContext,
-        });
-    }
-}
+  if (!chatContextStore.has(id)) {
+    chatContextStore.set(id, {
+      ...initialChatContext,
+    });
+  }
+};
 
 /**
- * 
- * @param {import('telegraf').Context} ctx 
- * @param {string} message 
- * @param {number} id 
- * @returns 
+ *
+ * @param {import('telegraf').Context} ctx
+ * @param {string} message
+ * @param {number} id
+ * @returns
  */
 const sendMessageToChatGpt = async (ctx, message, id) => {
-    checkChatContext(id);
-    await setUserLanguage(ctx, i18next, chatContextStore);
-    const assistantCharacter = chatContextStore.get(id).assistantCharacter;
-    const extra = chatContextStore.get(id).assistantCharacterExtra;
+  checkChatContext(id);
+  await setUserLanguage(ctx, i18next, chatContextStore);
+  const assistantCharacter = chatContextStore.get(id).assistantCharacter;
+  const extra = chatContextStore.get(id).assistantCharacterExtra;
 
-    tt`d!Send reques ${{assistantCharacter, message, extra }}`;
+  tt`d!Send reques ${{ assistantCharacter, message, extra }}`;
 
-    const initialContext = [
-        ...getAssistantContext(i18next.t, extra)[assistantCharacter]
-    ];
+  const initialContext = [
+    ...getAssistantContext(i18next.t, extra)[assistantCharacter],
+  ];
 
-    if (!chatContextStore.get(id).messages.length) {
-        chatContextStore.set(id, {
-            ...chatContextStore.get(id),
-            messages: initialContext
-        })
-    }
+  if (!chatContextStore.get(id).messages.length) {
+    chatContextStore.set(id, {
+      ...chatContextStore.get(id),
+      messages: initialContext,
+    });
+  }
 
-    chatContextStore.get(id).messages.push({ role: roles.User, content: message });
+  chatContextStore
+    .get(id)
+    .messages.push({ role: roles.User, content: message });
 
-    tt`d!Send request to chat gpt ${{
-        messages: chatContextStore.get(id).messages
-    }}`
+  tt`d!Send request to chat gpt ${{
+    messages: chatContextStore.get(id).messages,
+  }}`;
 
-    const help = await requestAssist(chatContextStore.get(id).messages, chatContextStore.get(id).model);
-    const { choices, error } = help;
+  const help = await requestAssist(
+    chatContextStore.get(id).messages,
+    chatContextStore.get(id).model
+  );
+  const { choices, error } = help;
 
-    if (error) {
-        tt`!Can't receive message from chat gpt ${error}`
+  if (error) {
+    tt`!Can't receive message from chat gpt ${error}`;
 
-        ctx.replyWithHTML(i18next.t('system.messages.error'))
-            .catch((err) => {
-                tt`!Can\'t send error message ${{err}}`
-            })
-        eraseMessages(getReplyId(ctx));
-        return;
-    }
+    ctx.replyWithHTML(i18next.t('system.messages.error')).catch((err) => {
+      tt`!Can\'t send error message ${{ err }}`;
+    });
+    eraseMessages(getReplyId(ctx));
+    return;
+  }
 
-    chatContextStore.get(id).messages = [
-        ...chatContextStore.get(id).messages,
-        ...(choices || []).map(({ message }) => ({ role: message.role, content: message.content }))
-    ];
+  chatContextStore.get(id).messages = [
+    ...chatContextStore.get(id).messages,
+    ...(choices || []).map(({ message }) => ({
+      role: message.role,
+      content: message.content,
+    })),
+  ];
 
-    return choices || [];
-}
+  return choices || [];
+};
 
 /**
- * @param {import('telegraf').Context} ctx 
- * @returns 
+ * @param {import('telegraf').Context} ctx
+ * @returns
  */
 const sendTypingAction = (ctx, timeout = 2000) => {
-    let stop;
+  let stop;
 
-    const sendAction = async () => {
-        try {
-            await ctx.sendChatAction('typing');
-        } catch (error) {
-            tt`d!Send typing action error ${error}`
-            stop && stop();
-        }
+  const sendAction = async () => {
+    try {
+      await ctx.sendChatAction('typing');
+    } catch (error) {
+      tt`d!Send typing action error ${error}`;
+      stop && stop();
     }
+  };
 
+  sendAction();
+
+  const timer = setInterval(() => {
     sendAction();
+  }, timeout);
 
-    const timer = setInterval(() => {
-        sendAction();
-    }, timeout);
-
-    stop = () => {
-        clearInterval(timer);
-    };
-    return stop;
+  stop = () => {
+    clearInterval(timer);
+  };
+  return stop;
 };
 
 const eraseMessages = (id) => {
-    const data = chatContextStore.get(id);
-    if (data?.messages?.length) {
-        chatContextStore.set(id, {
-            ...data,
-            messages: [],
-        });
-    }
-}
+  const data = chatContextStore.get(id);
+  if (data?.messages?.length) {
+    chatContextStore.set(id, {
+      ...data,
+      messages: [],
+    });
+  }
+};
 
 const toggleModel = (id) => {
-    const data = chatContextStore.get(id);
-    if (data?.model) {
-        const nextModel = data?.model === DEFAULT_MODEL
-            ? GPT_4_MODEL
-            : DEFAULT_MODEL;
-        
-        chatContextStore.set(id, {
-            ...data,
-            model: nextModel
-        });
-        return nextModel;
-    }
-    return 'toggleModelError: data not found...'
-}
+  const data = chatContextStore.get(id);
+  if (data?.model) {
+    const nextModel =
+      data?.model === DEFAULT_MODEL ? GPT_4_MODEL : DEFAULT_MODEL;
+
+    chatContextStore.set(id, {
+      ...data,
+      model: nextModel,
+    });
+    return nextModel;
+  }
+  return 'toggleModelError: data not found...';
+};
 
 const commands = {
-    image: {
-        // FIXME: вынести в ключи локализации
-        desc: () => 'Сгенерировать изображение',
-        fn: (ctx) => {
-            replyWithImagePropmt(ctx, i18next.t);
-            const id = getReplyId(ctx);
-            const data = chatContextStore.get(id);
+  image: {
+    // FIXME: вынести в ключи локализации
+    desc: () => 'Сгенерировать изображение',
+    fn: (ctx) => {
+      replyWithImagePropmt(ctx, i18next.t);
+      const id = getReplyId(ctx);
+      const data = chatContextStore.get(id);
 
-            chatContextStore.set(id, {
-                ...data,
-                waitForImagePrompt: true
-            });
-        }
+      chatContextStore.set(id, {
+        ...data,
+        waitForImagePrompt: true,
+      });
     },
+  },
 
-    model: {
-        desc: () => i18next.t('bot.commands.model'),
-        fn: (ctx) => {
-            const model = toggleModel(getReplyId(ctx));
-            replyWithModel(ctx, i18next.t, model);
-        }
+  model: {
+    desc: () => i18next.t('bot.commands.model'),
+    fn: (ctx) => {
+      const model = toggleModel(getReplyId(ctx));
+      replyWithModel(ctx, i18next.t, model);
     },
-    lang: {
-        desc: () => i18next.t('bot.commands.lang'),
-        fn: (ctx) => {
-            replyWithLanguageButtons(ctx, i18next.t)
-        }
+  },
+  lang: {
+    desc: () => i18next.t('bot.commands.lang'),
+    fn: (ctx) => {
+      replyWithLanguageButtons(ctx, i18next.t);
     },
-    voice_response: {
-        desc: () => i18next.t('bot.commands.voice'),
-        fn: (ctx) => {
-            replyWithVoiceButtons(ctx, i18next.t);
-        }
+  },
+  voice_response: {
+    desc: () => i18next.t('bot.commands.voice'),
+    fn: (ctx) => {
+      replyWithVoiceButtons(ctx, i18next.t);
     },
-    start: {
-        desc: () => i18next.t('bot.commands.start'),
-        fn: (ctx) => {
-            eraseMessages(getReplyId(ctx));
-            replyWithRoles(ctx, i18next);
-        }
+  },
+  start: {
+    desc: () => i18next.t('bot.commands.start'),
+    fn: (ctx) => {
+      eraseMessages(getReplyId(ctx));
+      replyWithRoles(ctx, i18next);
     },
-    async setCommands(ctx) {
-        if (ctx) {
-            await setUserLanguage(
-                ctx,
-                i18next,
-                chatContextStore
-            )
-        }
-         
-        const _commands = Object.keys(commands)
-            .filter(c => typeof commands[c] !== "function")
-            .map(command => ({
-                command,
-                description: commands[command].desc()
-            }));
-        const result = await bot.telegram.setMyCommands(_commands);
-        tt`d!Set commands ${{ result, commands: _commands }}`
+  },
+  async setCommands(ctx) {
+    if (ctx) {
+      await setUserLanguage(ctx, i18next, chatContextStore);
     }
+
+    const _commands = Object.keys(commands)
+      .filter((c) => typeof commands[c] !== 'function')
+      .map((command) => ({
+        command,
+        description: commands[command].desc(),
+      }));
+    const result = await bot.telegram.setMyCommands(_commands);
+    tt`d!Set commands ${{ result, commands: _commands }}`;
+  },
 };
 
 const runBot = async () => {
-    bot.on('callback_query', async (ctx) => {
-        if (accounts.length && !accounts.includes(getUsername(ctx))) {
-            accessDenied(ctx, i18next, chatContextStore);
-            return;
-        }
-        const data = ctx.update.callback_query.data;
-        const id = getReplyId(ctx);
+  bot.on('callback_query', async (ctx) => {
+    if (accounts.length && !accounts.includes(getUsername(ctx))) {
+      accessDenied(ctx, i18next, chatContextStore);
+      return;
+    }
+    const data = ctx.update.callback_query.data;
+    const id = getReplyId(ctx);
 
-        if (data?.startsWith('programming:')) {
-            const [, language] = data.split(':');
-            chatContextStore.set(id, {
-                ...(chatContextStore.get(id) || initialChatContext),
-                assistantCharacterExtra: { language },
-                messages: getAssistantContext(i18next.t, { language })[characters.programmer]
-            });
+    if (data?.startsWith('programming:')) {
+      const [, language] = data.split(':');
+      chatContextStore.set(id, {
+        ...(chatContextStore.get(id) || initialChatContext),
+        assistantCharacterExtra: { language },
+        messages: getAssistantContext(i18next.t, { language })[
+          characters.programmer
+        ],
+      });
+      const characterCtx = chatContextStore.get(id).messages[0].content;
+      tt`d!Set programmer context ${characterCtx}`;
+      ctx
+        .replyWithHTML(
+          `<code>${i18next.t('system.messages.change-character', {
+            character: characters.programmer,
+          })}</code>`
+        )
+        .catch((err) => tt`!Can\'t send change character message ${err}`);
+      return;
+    }
+    switch (data) {
+      case 'enable_voice_response':
+      case 'disable_voice_response':
+        const enableVoiceResponse = Boolean(data.startsWith('enable'));
+        chatContextStore.set(id, {
+          ...(chatContextStore.get(id) || initialChatContext),
+          enableVoiceResponse,
+        });
+        ctx
+          .replyWithHTML(
+            `<code>${
+              enableVoiceResponse ? 'Enabled' : 'Disabled'
+            } voice response...</code>`
+          )
+          .catch((err) => tt`!Can\'t send voice message feature status ${err}`);
+        return;
+      case 'en':
+      case 'ru':
+        chatContextStore.set(id, {
+          ...(chatContextStore.get(id) || initialChatContext),
+          /**
+           * ru-RU, en-EN !!! Важно для преобразования текста в голос  ¯\_(ツ)_/¯
+           * Иначе получаю ошибку из vocalizeText
+           * {"error_code":"BAD_REQUEST","error_message":"Error while parsing and validating request: Request voice is applicable for Ru language only: filipp"}
+           */
+          lang: `${data}-${data.toUpperCase()}`,
+        });
+        await setUserLanguage(ctx, i18next, chatContextStore);
+        ctx
+          .replyWithHTML(
+            `<code>${i18next.t('system.messages.lang-changed', {
+              lang: data,
+            })}</code>`
+          )
+          .catch((err) => tt`!Can\'t send language status ${err}`);
+        return;
+      default: {
+        const characterExtra =
+          chatContextStore.get(id)?.assistantCharacterExtra ||
+          initialChatContext.assistantCharacterExtra;
+        if (getAssistantContext(i18next.t, characterExtra)[data]) {
+          chatContextStore.set(id, {
+            ...(chatContextStore.get(id) || initialChatContext),
+            assistantCharacter: data,
+            assistantCharacterExtra: characterExtra,
+            messages: getAssistantContext(i18next.t, characterExtra)[data],
+          });
+          if (data === characters.programmer) {
+            replyWithProgrammingLanguages(ctx, i18next);
+          } else {
+            ctx
+              .replyWithHTML(
+                `<code>${i18next.t('system.messages.change-character', {
+                  character: data,
+                })}</code>`
+              )
+              .catch(
+                (err) =>
+                  tt`!Can\'t send character change status messsage ${err}`
+              );
             const characterCtx = chatContextStore.get(id).messages[0].content;
-            tt`d!Set programmer context ${characterCtx}`;
-            ctx.replyWithHTML(`<code>${i18next.t('system.messages.change-character', { character: characters.programmer })}</code>`)
-                .catch((err) => tt`!Can\'t send change character message ${err}`)
-            return;
+            tt`d!Set context${characterCtx}`;
+          }
+          return;
         }
-        switch (data) {
-            case 'enable_voice_response':
-            case 'disable_voice_response': 
-                const enableVoiceResponse = Boolean(data.startsWith('enable'))
-                chatContextStore.set(id, {
-                    ...chatContextStore.get(id) || initialChatContext,
-                    enableVoiceResponse
-                });
-                ctx.replyWithHTML(`<code>${enableVoiceResponse ? 'Enabled' : 'Disabled' } voice response...</code>`)
-                    .catch((err) => tt`!Can\'t send voice message feature status ${err}`)
-                return;
-            case 'en':
-            case 'ru':
-                chatContextStore.set(id, {
-                    ...chatContextStore.get(id) || initialChatContext,
-                    /**
-                     * ru-RU, en-EN !!! Важно для преобразования текста в голос  ¯\_(ツ)_/¯ 
-                     * Иначе получаю ошибку из vocalizeText
-                     * {"error_code":"BAD_REQUEST","error_message":"Error while parsing and validating request: Request voice is applicable for Ru language only: filipp"}
-                     */
-                    lang: `${data}-${data.toUpperCase()}`
-                });
-                await setUserLanguage(ctx, i18next, chatContextStore);
-                ctx.replyWithHTML(`<code>${i18next.t('system.messages.lang-changed', { lang: data })}</code>`)
-                    .catch((err) => tt`!Can\'t send language status ${err}`)
-                return;
-            default: {
-                const characterExtra = chatContextStore.get(id)?.assistantCharacterExtra || initialChatContext.assistantCharacterExtra;
-                if (getAssistantContext(i18next.t, characterExtra)[data]) {
-                    chatContextStore.set(id, {
-                        ...(chatContextStore.get(id) || initialChatContext),
-                        assistantCharacter: data,
-                        assistantCharacterExtra: characterExtra,
-                        messages: getAssistantContext(i18next.t, characterExtra)[data]
-                    });
-                    if (data === characters.programmer) {
-                        replyWithProgrammingLanguages(ctx, i18next);
-                    } else {
-                        ctx.replyWithHTML(`<code>${i18next.t('system.messages.change-character', { character: data })}</code>`)
-                            .catch((err) => tt`!Can\'t send character change status messsage ${err}`)    
-                        const characterCtx = chatContextStore.get(id).messages[0].content;
-                        tt`d!Set context${characterCtx}`
-                    }
-                    return;
-                }
-            }
-        }
-        ctx.reply(i18next.t('system.messages.unknown-command', { command: data }))
-            .catch((err) => tt`!Can\'t send unknown command message ${err}`)
-    });
+      }
+    }
+    ctx
+      .reply(i18next.t('system.messages.unknown-command', { command: data }))
+      .catch((err) => tt`!Can\'t send unknown command message ${err}`);
+  });
 
-    Object.keys(commands)
-        .filter(c => typeof commands[c] !== "function")
-        .forEach(command => {
-            const { fn,  } = commands[command];
-            bot.command(command, (ctx) => {
-                if (accounts.length && !accounts.includes(getUsername(ctx))) {
-                    accessDenied(ctx, i18next, chatContextStore);
-                    return;
-                }
-                checkChatContext(getReplyId(ctx));
-                fn(ctx);
-            })
-    });
-
-    bot.on('message', async (ctx) => {
+  Object.keys(commands)
+    .filter((c) => typeof commands[c] !== 'function')
+    .forEach((command) => {
+      const { fn } = commands[command];
+      bot.command(command, (ctx) => {
         if (accounts.length && !accounts.includes(getUsername(ctx))) {
-            accessDenied(ctx, i18next, chatContextStore);
-            return;
+          accessDenied(ctx, i18next, chatContextStore);
+          return;
         }
+        checkChatContext(getReplyId(ctx));
+        fn(ctx);
+      });
+    });
 
-        if (ctx.message.voice) { // Voice messages handling
-            const { voice, from } = ctx.message;
-            const { id } = from;
-            const { file_id } = voice;
+  bot.on('message', async (ctx) => {
+    if (accounts.length && !accounts.includes(getUsername(ctx))) {
+      accessDenied(ctx, i18next, chatContextStore);
+      return;
+    }
+
+    if (ctx.message.voice) {
+      // Voice messages handling
+      const { voice, from } = ctx.message;
+      const { id } = from;
+      const { file_id } = voice;
+      await setUserLanguage(ctx, i18next, chatContextStore);
+      let stopTyping;
+      ctx
+        .replyWithHTML(
+          `<code>${i18next.t('system.messages.processing')}</code>`
+        )
+        .catch((err) => tt`!Can\'t send processing message ${err}`);
+
+      ctx.telegram.getFileLink(file_id).then(async (fileLink) => {
+        // Получаем ссыль на голосовое сообщение
+        const { href } = fileLink;
+
+        try {
+          // Получаем данные в ArrayBuffer и их же передаем в Yandex Speech Kit
+          const { data: voiceBuffer } = await axios.get(href, {
+            responseType: 'arraybuffer',
+          });
+          // Таким образом обходимся без установки ffmpeg и
+          // Промежуточного сохранения и конвертирования файла
+          // А значит - сокращаем время ответа
+          await setUserLanguage(ctx, i18next, chatContextStore);
+          const prompt = await recognizeVoice(voiceBuffer, i18next.language);
+          await ctx
+            .replyWithHTML(
+              `<code>${i18next.t('system.messages.prompt', { prompt })}</code>`
+            )
+            .catch((err) => tt`!Can\'t send user prompt message ${err}`);
+
+          stopTyping = sendTypingAction(ctx);
+
+          const choices = await sendMessageToChatGpt(ctx, prompt, id);
+          if (chatContextStore.get(getReplyId(ctx)).enableVoiceResponse) {
+            tt`d!Enabled voice response...`;
+
+            /**
+             * Выдернет из многострочного текста, участки с кодом
+             * заключченные в тройные backtick кавычки (формат markdown)
+             */
+            const codeRe = /```(.+?)```/gis;
+
+            const preparedForVoiceResponse = choices.map((choice) => {
+              const { message } = choice;
+              const { content } = message;
+
+              /**
+               * Участки с кодом, вместе с ```
+               */
+              let codeBlocks = [];
+
+              /**
+               * Участки с текстом
+               * по умолчанию весь текст, если он не подходит
+               * под регулярное выражение
+               */
+              let texts = [];
+
+              if (codeRe.test(content)) {
+                codeBlocks = content.match(codeRe);
+                const _messages = content.replace(codeRe, '__CODE__');
+                texts = _messages.split('__CODE__');
+              } else {
+                texts = [content];
+              }
+
+              return {
+                ...choice,
+                voiceData: {
+                  texts,
+                  codeBlocks,
+                },
+              };
+            });
             await setUserLanguage(ctx, i18next, chatContextStore);
-            let stopTyping
-            ctx.replyWithHTML(`<code>${i18next.t('system.messages.processing')}</code>`)
-                .catch((err) => tt`!Can\'t send processing message ${err}`)
+            await sendVoiceAssistantResponse(
+              ctx,
+              preparedForVoiceResponse,
+              i18next,
+              chatContextStore.get(getReplyId(ctx)).assistantCharacter
+            ).catch(async (err) => {
+              tt`!Failed send voice message${{
+                isBuffer: Buffer.isBuffer(err),
+              }}`;
 
-            ctx.telegram.getFileLink(file_id).then(async (fileLink) => {
-                // Получаем ссыль на голосовое сообщение
-                const { href } = fileLink;
+              await ctx
+                .replyWithHTML(
+                  `<code>${i18next.t(
+                    'system.messages.error.voice-forbidden'
+                  )}</code>`
+                )
+                .catch(
+                  (_err) => tt`!Can\'t send voice error message${{ _err }}`
+                );
 
-                try {
-                    // Получаем данные в ArrayBuffer и их же передаем в Yandex Speech Kit
-                    const { data: voiceBuffer } = await axios.get(href, { responseType: 'arraybuffer' });
-                    // Таким образом обходимся без установки ffmpeg и
-                    // Промежуточного сохранения и конвертирования файла
-                    // А значит - сокращаем время ответа
-                    await setUserLanguage(ctx, i18next, chatContextStore);
-                    const prompt = await recognizeVoice(voiceBuffer, i18next.language);
-                    await ctx.replyWithHTML(`<code>${i18next.t('system.messages.prompt', { prompt })}</code>`)
-                        .catch((err) => tt`!Can\'t send user prompt message ${err}`)    
-                    
-                    stopTyping = sendTypingAction(ctx);
-    
-                    const choices = await sendMessageToChatGpt(
-                        ctx,
-                        prompt,
-                        id
-                    );
-                    if (chatContextStore.get(getReplyId(ctx)).enableVoiceResponse) {
-                        tt`d!Enabled voice response...`;
-
-                        /**
-                         * Выдернет из многострочного текста, участки с кодом
-                         * заключченные в тройные backtick кавычки (формат markdown)
-                         */
-                        const codeRe = /```(.+?)```/gis;
-
-                        const preparedForVoiceResponse = choices.map((choice) => {
-                            const { message } = choice;
-                            const { content } = message;
-
-                            /**
-                             * Участки с кодом, вместе с ```
-                             */
-                            let codeBlocks = [];
-
-                            /**
-                             * Участки с текстом
-                             * по умолчанию весь текст, если он не подходит
-                             * под регулярное выражение
-                             */
-                            let texts = [];
-                            
-                            if (codeRe.test(content)) {
-                                codeBlocks = content.match(codeRe);
-                                const _messages = content.replace(codeRe, '__CODE__');
-                                texts = _messages.split('__CODE__');
-                            } else {
-                                texts = [content]
-                            }
-                           
-                            return {
-                                ...choice,
-                                voiceData: {
-                                    texts,
-                                    codeBlocks,
-                                }
-                            }
-                        })
-                        await setUserLanguage(ctx, i18next, chatContextStore);
-                        await sendVoiceAssistantResponse(
-                            ctx,
-                            preparedForVoiceResponse,
-                            i18next,
-                            chatContextStore.get(
-                                getReplyId(ctx)
-                            ).assistantCharacter
-                        ).catch(async (err) => {
-                            tt`!Failed send voice message${{
-                                isBuffer: Buffer.isBuffer(err),
-                            }}`
-
-                            await ctx.replyWithHTML(`<code>${i18next.t('system.messages.error.voice-forbidden')}</code>`)
-                                .catch((_err) => tt`!Can\'t send voice error message${{_err}}`)
-
-                            ctx.reply(choices[0].message.content)
-                                .catch((_err) => tt`!Can\'t send text instead voice message${{_err}}`)
-                        });
-                        return;
-                    }
-                    sendReplyFromAssistant(ctx, choices)
-                } catch (error) {
-                    tt`!Failed voice recognition ${error}`
-                    ctx.reply(i18next.t('system.messages.error.voice'))
-                        .catch((err) => tt`!Can\'t send voice error message${{err}}`)
-                } finally {
-                    stopTyping()
-                }
+              ctx
+                .reply(choices[0].message.content)
+                .catch(
+                  (_err) =>
+                    tt`!Can\'t send text instead voice message${{ _err }}`
+                );
             });
             return;
+          }
+          sendReplyFromAssistant(ctx, choices);
+        } catch (error) {
+          tt`!Failed voice recognition ${error}`;
+          ctx
+            .reply(i18next.t('system.messages.error.voice'))
+            .catch((err) => tt`!Can\'t send voice error message${{ err }}`);
+        } finally {
+          stopTyping();
         }
+      });
+      return;
+    }
 
-        const userContext = chatContextStore.get(getReplyId(ctx))
-        if (userContext?.waitForImagePrompt) {
-            tt`d! waitForImagePrompt`
-            chatContextStore.set(getReplyId(ctx), {
-                ...userContext,
-                waitForImagePrompt: false,
-            })
-            // FIXME: вынести в ключи локализации
-            ctx.replyWithHTML(`<code>Генерирую изображение по запросу: ${ctx.message.text}</code>`);
-            const url = await generateImage(ctx.message.text);
-            if (url) {
-                ctx.sendPhoto(url)
-            } else {
-                // FIXME: вынести в ключи локализации
-                // FIXME: добавить обработку ошибок
-                ctx.replyWithHTML(`<code>Что-то пошло не так, либо ты ввел что-то оскорбительное...</code>`);
-            }
-            return;
-        }
-
-        if (ctx.message.text.startsWith('/')) {
-            ctx.reply(i18next.t('system.messages.unknown-command', { command: ctx.message.text }))
-                .catch((err) => tt`!Can\'t send unknown command message${{err}}`)
-            return;
-        }
-
-        const stopTyping = sendTypingAction(ctx);
-        const choices =  await sendMessageToChatGpt(
-            ctx,
-            ctx.message.text,
-            getReplyId(ctx)
+    const userContext = chatContextStore.get(getReplyId(ctx));
+    if (userContext?.waitForImagePrompt) {
+      tt`d! waitForImagePrompt`;
+      chatContextStore.set(getReplyId(ctx), {
+        ...userContext,
+        waitForImagePrompt: false,
+      });
+      // FIXME: вынести в ключи локализации
+      ctx.replyWithHTML(
+        `<code>Генерирую изображение по запросу: ${ctx.message.text}</code>`
+      );
+      const url = await generateImage(ctx.message.text);
+      if (url) {
+        ctx.sendPhoto(url);
+      } else {
+        // FIXME: вынести в ключи локализации
+        // FIXME: добавить обработку ошибок
+        ctx.replyWithHTML(
+          `<code>Что-то пошло не так, либо ты ввел что-то оскорбительное...</code>`
         );
+      }
+      return;
+    }
 
-        stopTyping();
+    if (ctx.message.text.startsWith('/')) {
+      ctx
+        .reply(
+          i18next.t('system.messages.unknown-command', {
+            command: ctx.message.text,
+          })
+        )
+        .catch((err) => tt`!Can\'t send unknown command message${{ err }}`);
+      return;
+    }
 
-        sendReplyFromAssistant(ctx, choices);
-    })
-    await commands.setCommands();
-    bot.launch();
-    tt`✨ Bot started ✨`;
-}
+    const stopTyping = sendTypingAction(ctx);
+    const choices = await sendMessageToChatGpt(
+      ctx,
+      ctx.message.text,
+      getReplyId(ctx)
+    );
 
-iamToken.runUpdates() // Выписываем токен для конвертации голосовых в текст и только после этого запускаем бота
-    .then(_updateTimer => { // Можно отписаться от интервала обновления токенов 
-        runBot()
-    });
-    
+    stopTyping();
+
+    sendReplyFromAssistant(ctx, choices);
+  });
+  await commands.setCommands();
+  bot.launch();
+  tt`✨ Bot started ✨`;
+};
+
+iamToken
+  .runUpdates() // Выписываем токен для конвертации голосовых в текст и только после этого запускаем бота
+  .then((_updateTimer) => {
+    // Можно отписаться от интервала обновления токенов
+    runBot();
+  });
+
 process.once('SIGINT', () => bot?.stop('SIGINT'));
 process.once('SIGTERM', () => bot?.stop('SIGTERM'));
